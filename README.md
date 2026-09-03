@@ -124,23 +124,35 @@ code path from a WebMCP tool straight to a GitHub write.
   schema documents the four `github_*` change actions an approved plan
   can carry out.
 
-**Backend** — a handful of small, dependency-free Node functions under
-`api/`, deployable as-is on Vercel (or adaptable to any host that can run
-a `(req, res) => {}` handler).
-- `api/_lib/session.js` — encrypts the GitHub token into an httpOnly,
-  AES-256-GCM cookie (`crypto`, no database). `api/_lib/github.js` — a
-  thin authenticated wrapper around the GitHub REST API. `api/_lib/http.js`
-  — JSON body/response helpers.
-- `api/auth/github/{login,callback,status,logout}.js` — the OAuth flow.
+**Backend** — a handful of small, dependency-free Node functions,
+deployable as-is on Vercel (or adaptable to any host that can run a
+`(req, res) => {}` handler).
+- Vercel's Hobby plan caps a deployment at **12 Serverless Functions**,
+  and treats every file under `/api` as one. With OAuth (4 routes) and
+  GitHub context (11 routes), one file per endpoint would have been 15+.
+  So `/api` holds only two files — `api/auth/github/[...action].js` and
+  `api/github/[...action].js` — each a thin dispatcher using Vercel's
+  catch-all dynamic-route convention. The public URLs are unchanged
+  (`/api/auth/github/login`, `/api/github/issues?owner=…`, etc.); each
+  dispatcher just reads the matched segment from `req.query.action` and
+  calls the real handler. All the actual logic, plus the shared
+  `session`/`github`/`http` helpers, lives under `lib/` at the project
+  root — outside `/api` entirely, so none of it is ever mistaken for a
+  route.
+- `lib/session.js` — encrypts the GitHub token into an httpOnly,
+  AES-256-GCM cookie (`crypto`, no database). `lib/github.js` — a thin
+  authenticated wrapper around the GitHub REST API. `lib/http.js` — JSON
+  body/response helpers.
+- `lib/auth-handlers/{login,callback,status,logout}.js` — the OAuth flow.
   `login` is a plain redirect (with a CSRF `state` cookie); `callback`
   exchanges the code and sets the session cookie; `status` tells the
   frontend who's connected without ever returning the token; `logout`
   clears the cookie.
-- `api/github/{repo,issues,pulls,commits,checks,blockers,repos}.js` —
-  read-only, authenticated proxies to GitHub, shaped into small JSON
+- `lib/github-handlers/{repo,issues,pulls,commits,checks,blockers,repos}.js`
+  — read-only, authenticated proxies to GitHub, shaped into small JSON
   payloads.
-- `api/github/{create-issue,comment-issue,create-branch,open-pr}.js` —
-  the four write endpoints. They don't enforce the approval boundary
+- `lib/github-handlers/{create-issue,comment-issue,create-branch,open-pr}.js`
+  — the four write endpoints. They don't enforce the approval boundary
   themselves (that's a product decision, not a permissions system) — the
   boundary is that nothing in this codebase calls them except
   `Board._applyChange`, which only runs after `approveDecision`.
@@ -199,10 +211,14 @@ handoff/
 ├── app.js                # state, rendering, the Board API (shared by UI + tools)
 ├── mcp-tools.js           # document.modelContext.registerTool(...) calls
 ├── api/
-│   ├── _lib/              # session (encrypted cookie), github client, http helpers
-│   ├── auth/github/       # login, callback, status, logout
-│   └── github/            # repo, issues, pulls, commits, checks, blockers, repos,
-│                          # create-issue, comment-issue, create-branch, open-pr
+│   ├── auth/github/[...action].js   # dispatches login/callback/status/logout
+│   └── github/[...action].js        # dispatches repo/issues/pulls/commits/checks/
+│                                    # blockers/repos/create-issue/comment-issue/
+│                                    # create-branch/open-pr
+├── lib/
+│   ├── session.js, github.js, http.js   # shared helpers (never routed as functions)
+│   ├── auth-handlers/                    # the real OAuth logic
+│   └── github-handlers/                  # the real GitHub proxy logic
 ├── .env.example
 ├── LICENSE                # MIT
 └── README.md
