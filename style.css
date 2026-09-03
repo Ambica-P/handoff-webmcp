@@ -718,3 +718,6 @@ button, input, textarea { font-family: inherit; }
   .card.agent-touch { animation: none; }
   .mcp-status--checking .dot { animation: none; }
 }
+[hidden] {
+  display: none !important;
+}
