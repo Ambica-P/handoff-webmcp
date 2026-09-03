@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Handoff — a command center for people and their agents</title>
+<meta name="description" content="Humans set intent and constraints. Agents plan, propose, and execute — nothing external happens without approval. Built on WebMCP." />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2222%22 fill=%22%2312161C%22/><path d=%22M28 62 L46 44 L58 56 L74 38%22 stroke=%22%23E8A33D%22 stroke-width=%228%22 fill=%22none%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/></svg>" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div id="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 14 L10 8 L14 12 L20 6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      <div class="brand-text">
+        <h1>Handoff</h1>
+        <p class="tagline">Intent in. A plan back. Nothing external without you.</p>
+      </div>
+    </div>
+
+    <div class="status-cluster">
+      <div class="autonomy-pill" id="autonomy-pill" title="Share of the agent's actions taken without asking">
+        <span class="autonomy-value" id="autonomy-value">—</span>
+        <span class="autonomy-label">autonomous</span>
+      </div>
+      <div id="mcp-status" class="mcp-status mcp-status--checking">
+        <span class="dot"></span>
+        <span class="mcp-status-label">Checking for WebMCP…</span>
+      </div>
+      <button id="replay-btn" class="ghost-btn" type="button">Replay collaboration</button>
+      <button id="seed-btn" class="ghost-btn" type="button">Load sample mission</button>
+      <button id="reset-btn" class="ghost-btn" type="button">Clear everything</button>
+    </div>
+  </header>
+
+  <div id="toast-banner" class="toast-banner" hidden></div>
+
+  <main class="layout">
+
+    <div class="main-col">
+
+      <section class="mission-panel" aria-label="Mission">
+        <div class="panel-head">
+          <h2>Mission</h2>
+          <button id="mission-edit-toggle" class="text-btn" type="button">Edit</button>
+        </div>
+
+        <div id="mission-view" class="mission-view"></div>
+
+        <form id="mission-form" class="mission-form" hidden>
+          <label>
+            <span>What are we trying to do?</span>
+            <input type="text" name="title" placeholder="e.g. Launch the new pricing page" maxlength="140" />
+          </label>
+          <div class="mission-form-row">
+            <label>
+              <span>Deadline</span>
+              <input type="date" name="deadline" />
+            </label>
+            <label>
+              <span>Budget</span>
+              <input type="number" name="budget" min="0" step="1" placeholder="2000" />
+            </label>
+          </div>
+          <label>
+            <span>Constraints — one per line</span>
+            <textarea name="constraints" rows="3" placeholder="No weekend work&#10;Approval required before anything goes public"></textarea>
+          </label>
+          <div class="mission-form-actions">
+            <button type="submit" class="primary-btn">Save mission</button>
+            <button type="button" id="mission-cancel" class="text-btn">Cancel</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="repo-panel" aria-label="Repository">
+        <div class="panel-head">
+          <h2>Repository</h2>
+        </div>
+        <p class="panel-sub">Give your agent real project context — issues, pull requests, commits, and CI status — instead of a toy board.</p>
+        <div id="repo-view" class="repo-view"></div>
+      </section>
+
+
+      <section class="board" aria-label="Task board">
+        <div class="column" data-column="todo">
+          <div class="column-head">
+            <h2>To do</h2>
+            <span class="count" id="count-todo">0</span>
+          </div>
+          <form class="quick-add" data-column="todo">
+            <input type="text" name="title" placeholder="Add something to do…" aria-label="Add a task to To do" />
+            <button type="submit" aria-label="Add task">+</button>
+          </form>
+          <div class="card-list" id="list-todo" data-column="todo"></div>
+        </div>
+
+        <div class="column" data-column="doing">
+          <div class="column-head">
+            <h2>In progress</h2>
+            <span class="count" id="count-doing">0</span>
+          </div>
+          <form class="quick-add" data-column="doing">
+            <input type="text" name="title" placeholder="Add something already underway…" aria-label="Add a task to In progress" />
+            <button type="submit" aria-label="Add task">+</button>
+          </form>
+          <div class="card-list" id="list-doing" data-column="doing"></div>
+        </div>
+
+        <div class="column" data-column="done">
+          <div class="column-head">
+            <h2>Done</h2>
+            <span class="count" id="count-done">0</span>
+          </div>
+          <form class="quick-add" data-column="done">
+            <input type="text" name="title" placeholder="Log something already finished…" aria-label="Add a task to Done" />
+            <button type="submit" aria-label="Add task">+</button>
+          </form>
+          <div class="card-list" id="list-done" data-column="done"></div>
+        </div>
+      </section>
+
+    </div>
+
+    <div class="side-col">
+
+      <section class="decision-room" aria-label="Decision room">
+        <div class="panel-head">
+          <h2>Decision room</h2>
+          <span class="count" id="decision-count">0</span>
+        </div>
+        <p class="panel-sub">Where your agent brings plans and tradeoffs instead of just acting on them.</p>
+        <div id="decision-list" class="decision-list"></div>
+      </section>
+
+      <section class="ledger" aria-label="Shift ledger">
+        <div class="panel-head">
+          <h2>Shift ledger</h2>
+        </div>
+        <p class="panel-sub">Who did what, and why — in order.</p>
+        <ol id="ledger-feed" class="ledger-feed" reversed></ol>
+      </section>
+
+    </div>
+
+  </main>
+
+  <footer class="foot-note">
+    <p>Built for the WebMCP Challenge. Tools are registered with <code>document.modelContext.registerTool()</code> — open this page in an agent's in-app browser, state a mission with constraints, and see it plan, propose, and execute alongside you.</p>
+  </footer>
+
+</div>
+
+<template id="card-template">
+  <article class="card" draggable="true">
+    <div class="card-bar"></div>
+    <div class="card-body">
+      <div class="card-top">
+        <span class="priority-dot"></span>
+        <h3 class="card-title"></h3>
+        <span class="external-flag" title="Externally visible — agents need approval to mark this done">EXT</span>
+        <button class="card-delete" aria-label="Delete task" type="button">&times;</button>
+      </div>
+      <p class="card-notes"></p>
+      <div class="card-meta">
+        <span class="card-actor"></span>
+        <span class="card-cost"></span>
+        <span class="card-time"></span>
+      </div>
+      <div class="card-controls">
+        <button type="button" data-move="todo">To do</button>
+        <button type="button" data-move="doing">In progress</button>
+        <button type="button" data-move="done">Done</button>
+      </div>
+    </div>
+  </article>
+</template>
+
+<template id="decision-template">
+  <article class="decision-card">
+    <div class="decision-head">
+      <h3 class="decision-title"></h3>
+      <span class="decision-badge"></span>
+    </div>
+    <p class="decision-rationale"></p>
+    <div class="decision-options"></div>
+    <div class="decision-actions">
+      <button type="button" class="decision-reject text-btn">Reject</button>
+    </div>
+  </article>
+</template>
+
+<template id="option-template">
+  <div class="option-card">
+    <div class="option-head">
+      <span class="option-label"></span>
+      <span class="option-risk"></span>
+    </div>
+    <p class="option-description"></p>
+    <div class="option-cost"></div>
+    <button type="button" class="option-choose primary-btn">Approve</button>
+  </div>
+</template>
+
+<div id="replay-overlay" class="replay-overlay" hidden>
+  <div class="replay-panel">
+    <div class="replay-head">
+      <h2>Replay collaboration</h2>
+      <button id="replay-exit" class="text-btn" type="button">Exit replay</button>
+    </div>
+    <p class="replay-entry-text" id="replay-entry-text">No activity yet.</p>
+    <div class="replay-board" id="replay-board"></div>
+    <div class="replay-controls">
+      <button id="replay-prev" class="ghost-btn" type="button">◀ Back</button>
+      <button id="replay-play" class="primary-btn" type="button">Play</button>
+      <button id="replay-next" class="ghost-btn" type="button">Next ▶</button>
+      <input id="replay-scrub" type="range" min="0" max="0" value="0" />
+      <span class="replay-position" id="replay-position">0 / 0</span>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script src="mcp-tools.js"></script>
+</body>
+</html>

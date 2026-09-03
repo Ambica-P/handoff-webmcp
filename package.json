@@ -1,0 +1,11 @@
+{
+  "name": "handoff-webmcp",
+  "version": "1.0.0",
+  "description": "A command center where people and their agents plan, decide, and execute together — over WebMCP, with optional GitHub context.",
+  "license": "MIT",
+  "private": true,
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "npx --yes serve -l 5173 ."
+  }
+}
