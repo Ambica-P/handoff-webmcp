@@ -12,8 +12,6 @@ tradeoffs — it brings you a decision instead of just acting.
 
 Built for the [WebMCP Challenge](https://www.google.com/search?q=webmcp+challenge).
 
-**Live:** [handoff-webmcp-lyart.vercel.app](https://handoff-webmcp-lyart.vercel.app/)
-
 ---
 
 ## The pipeline
@@ -41,16 +39,15 @@ attributable — not DOM guesses, and not a black box on someone else's
 server either.
 
 Every tool call is a real function call into the same `Board` object the
-UI's own clicks call (`app.js`). There's exactly one implementation of
-"move a task," "propose a plan," or "inspect a repository" — the
+UI's own clicks call (`public/app.js`). There's exactly one implementation
+of "move a task," "propose a plan," or "inspect a repository" — the
 difference between a person doing it and an agent doing it is a single
 `actor` argument that a handful of `Board` methods check before deciding
 whether to act immediately or raise a decision instead. That asymmetry is
-now the same story for GitHub as it already was for the board: reading is
-autonomous, writing is not — an agent can inspect issues, PRs, commits, and
-CI status freely, but every GitHub write is a `changes` entry inside a
-proposed plan, and it only ever runs from inside `approveDecision`, after a
-person resolves it.
+the same story for GitHub as for the board: reading is autonomous, writing
+is not — an agent can inspect issues, PRs, commits, and CI status freely,
+but every GitHub write is a `changes` entry inside a proposed plan, and it
+only ever runs from inside `approveDecision`, after a person resolves it.
 
 ## What this makes possible that wasn't possible before
 
@@ -59,7 +56,7 @@ person resolves it.
   `find_repo_blockers` scans open issues and PRs for "blocked by #12" /
   "depends on #7" language and for PRs whose latest checks are failing —
   instead of asking you to describe the state of your repo to it.
-- **A hard line around external, irreversible action**, now covering two
+- **A hard line around external, irreversible action**, covering two
   systems with one mental model: marking an `external` task "done," or
   deleting anything, needs approval; so does every GitHub write, because
   `github_*` change types only ever execute from inside an approved
@@ -73,12 +70,9 @@ person resolves it.
   `/api/github/*` response is shaped JSON; the raw token is never in a
   response body a WebMCP tool (or client-side JS of any kind) can read.
 - **An audit trail that actually shows the reasoning, not just the
-  outcome.** Read-only inspection calls (`inspect_repository`,
-  `list_repo_issues`, `find_repo_blockers`, …) log to the ledger too, so
-  "scanned acme/site for blockers — found 2" sits right next to the plan
-  it led to. Replay scrubs through the whole thing — mission set →
-  repository connected → issues scanned → blocker found → plan proposed →
-  approved → issue opened on GitHub — as one continuous sequence.
+  outcome.** Read-only inspection calls log to the ledger too, so "scanned
+  acme/site for blockers — found 2" sits right next to the plan it led to.
+  Replay scrubs through the whole thing as one continuous sequence.
 
 ## The permission model
 
@@ -95,97 +89,107 @@ person resolves it.
 | Any GitHub write (issue, comment, branch, PR) | **Requires approval** | — |
 | Connect / disconnect GitHub | Not an agent action at all — ordinary sign-in | Always allowed |
 
-The gate for board actions lives in `Board.move()` and `Board.remove()`,
-each checking `actor === "agent"` before deciding whether to apply the
-change or raise a decision. The gate for GitHub writes is structural rather
-than a conditional: those four actions (`github_create_issue`,
-`github_comment_issue`, `github_create_branch`, `github_open_pr`) are only
-ever reachable from `Board._applyChange`, which is only ever called from
-`Board.approveDecision`, which only ever runs on a decision a person (or an
-agent explicitly relaying a person's "yes, do it") resolved. There is no
-code path from a WebMCP tool straight to a GitHub write.
+The gate for board actions lives in `Board.move()` and `Board.remove()` in
+`public/app.js`, each checking `actor === "agent"` before deciding whether
+to apply the change or raise a decision. The gate for GitHub writes is
+structural: those four actions (`github_create_issue`, `github_comment_issue`,
+`github_create_branch`, `github_open_pr`) are only ever reachable from
+`Board._applyChange`, which only runs from `Board.approveDecision`, which
+only runs on a decision a person (or an agent explicitly relaying a
+person's "yes, do it") resolved.
 
 ## How it's implemented
 
-**Frontend** — plain HTML/CSS/JS, no build step, no framework.
-- `app.js` defines the `Board` API. Everything — `getMission`/`setMission`,
+**Frontend** — plain HTML/CSS/JS, no framework, served as static files.
+- `public/app.js` defines the `Board` API — `getMission`/`setMission`,
   `setRepo`/`getRepo`, `list`/`search`/`summary`, `create`/`update`/`move`/
   `remove`, `proposePlan`/`approveDecision`/`rejectDecision`, and the
-  read-only GitHub methods (`inspectRepository`, `listRepoIssues`,
-  `listRepoPulls`, `listRepoCommits`, `getRepoChecks`, `findRepoBlockers`)
-  — is called by both the UI's event listeners and the WebMCP tools,
-  tagged `"human"` or `"agent"` depending on who called it. Board state
-  (mission, repo selection, tasks, decisions, ledger) lives in
-  `localStorage`; the GitHub session itself never does.
-- `mcp-tools.js` registers 19 tools against `document.modelContext` — the
-  original 12 board tools, plus `select_repository`, `inspect_repository`,
-  `list_repo_issues`, `list_repo_pull_requests`, `list_repo_commits`,
-  `get_repo_check_status`, and `find_repo_blockers`. `propose_plan`'s
-  schema documents the four `github_*` change actions an approved plan
-  can carry out.
+  read-only GitHub methods — called by both the UI's event listeners and
+  the WebMCP tools, tagged `"human"` or `"agent"` depending on who called
+  it. Board state lives in `localStorage`; the GitHub session never does.
+- `public/mcp-tools.js` registers 19 tools against `document.modelContext`.
+- `public/index.html` / `public/style.css` are unchanged static assets.
+  There's no `app/page.js` — Next.js's App Router only needs to know
+  about the API; the frontend is served via a rewrite (see below).
 
-**Backend** — a handful of small, dependency-free Node functions,
-deployable as-is on Vercel (or adaptable to any host that can run a
-`(req, res) => {}` handler).
-- Vercel's Hobby plan caps a deployment at **12 Serverless Functions**,
-  and treats every file under `/api` as one. With OAuth (4 routes) and
-  GitHub context (11 routes), one file per endpoint would have been 15+.
-  So `/api` holds only two files — `api/auth/github/[...action].js` and
-  `api/github/[...action].js` — each a thin dispatcher using Vercel's
-  catch-all dynamic-route convention. The public URLs are unchanged
-  (`/api/auth/github/login`, `/api/github/issues?owner=…`, etc.); each
-  dispatcher just reads the matched segment from `req.query.action` and
-  calls the real handler. All the actual logic, plus the shared
-  `session`/`github`/`http` helpers, lives under `lib/` at the project
-  root — outside `/api` entirely, so none of it is ever mistaken for a
-  route.
+**Backend** — Next.js App Router Route Handlers (`app/api/**/route.js`),
+deployed on Vercel like the rest of the app.
+- **Why Next.js at all**, given the frontend is deliberately
+  framework-free: this project originally shipped its backend as plain
+  `(req, res) => {}` files under `/api`, Vercel's zero-config Serverless
+  Functions convention. Two real problems came up running that in
+  production: (1) Vercel's Hobby plan caps a deployment at **12**
+  Serverless Functions, and this project has enough real endpoints (OAuth
+  + eleven GitHub routes) to blow past that with one file per endpoint;
+  and (2) consolidating those into catch-all files (`[...action].js`)
+  to fix (1) exposed that Vercel's plain Node runtime does **not**
+  reliably populate `req.query` from a dynamic path segment the way a
+  framework does — the matched segment came back empty in production.
+  Next.js's App Router solves both: `context.params` for a
+  `[...action]` route is officially documented and reliably populated,
+  and Vercel treats one `route.js` file (regardless of how many HTTP
+  methods it exports) as one Function — so the whole backend is 2
+  Functions, not 15.
 - `lib/session.js` — encrypts the GitHub token into an httpOnly,
-  AES-256-GCM cookie (`crypto`, no database). `lib/github.js` — a thin
-  authenticated wrapper around the GitHub REST API. `lib/http.js` — JSON
-  body/response helpers.
+  AES-256-GCM cookie, read and written via `NextRequest`/`NextResponse`'s
+  built-in cookie APIs (`crypto`, no database). `lib/github.js` — a thin
+  authenticated wrapper around the GitHub REST API. `lib/http.js` — small
+  query/body/error-response helpers built on the Web `Request`/`Response`
+  objects Route Handlers already use.
 - `lib/auth-handlers/{login,callback,status,logout}.js` — the OAuth flow.
-  `login` is a plain redirect (with a CSRF `state` cookie); `callback`
-  exchanges the code and sets the session cookie; `status` tells the
-  frontend who's connected without ever returning the token; `logout`
-  clears the cookie.
-- `lib/github-handlers/{repo,issues,pulls,commits,checks,blockers,repos}.js`
-  — read-only, authenticated proxies to GitHub, shaped into small JSON
-  payloads.
-- `lib/github-handlers/{create-issue,comment-issue,create-branch,open-pr}.js`
-  — the four write endpoints. They don't enforce the approval boundary
-  themselves (that's a product decision, not a permissions system) — the
-  boundary is that nothing in this codebase calls them except
-  `Board._applyChange`, which only runs after `approveDecision`.
+- `lib/github-handlers/{repo,issues,pulls,commits,checks,blockers,repos,
+  create-issue,comment-issue,create-branch,open-pr}.js` — read-only
+  proxies plus the four write endpoints. None of them enforce the
+  approval boundary themselves (that's a product decision, not a
+  permissions system) — the boundary is that nothing in this codebase
+  calls the writes except `Board._applyChange`, which only runs after
+  `approveDecision`.
+- `app/api/auth/github/[...action]/route.js` and
+  `app/api/github/[...action]/route.js` — the only two files under
+  `app/`. Each exports `GET`/`POST` functions that read the matched
+  segment off `context.params.action` and dispatch to the real handler in
+  `lib/`. Public URLs are unchanged from a one-file-per-endpoint layout
+  (`/api/auth/github/login`, `/api/github/issues?owner=…`, etc.).
+- `next.config.js` adds one rewrite — `/` → `/index.html` — so the static
+  frontend, not a Next.js page, is what's served at the root.
+
+I verified this end-to-end locally before shipping it: a real `next build`
+(2 Functions, as expected), a real `next start`, and `curl` against the
+running server confirming static assets serve, `/api/auth/github/login`
+redirects with the OAuth `state` cookie set, unknown sub-routes 404 with
+the matched segment correctly reported (proving `context.params` works,
+which is the whole reason for this move), a real encrypted session cookie
+round-trips through `/api/auth/github/status`, and an authenticated
+request against a fake token reaches the real GitHub API and cleanly
+proxies back GitHub's own 401.
 
 ## Running it locally
 
-The board works with zero setup:
-
 ```bash
-npx serve .
-# or: python3 -m http.server 5173
+npm install
+npm run dev
 ```
 
-Without a backend deployed, the Repository panel just shows "Connect
-GitHub" and the connect link 404s — the rest of the app (mission, board,
-decisions, ledger, replay) works exactly as before.
+Without `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`/`SESSION_SECRET` set,
+the board still works fully — the Repository panel just shows "Connect
+GitHub," and the connect link returns a clear JSON error instead of
+silently failing.
 
 ## Setting up GitHub OAuth
 
-1. Deploy the app somewhere that runs the `api/` functions (Vercel is the
-   easiest — `npx vercel deploy --prod`; the `api/` directory is
-   auto-detected, no config needed).
+1. Deploy to Vercel: `npx vercel deploy --prod` (or connect the GitHub
+   repo in the Vercel dashboard — Next.js is auto-detected, no config
+   needed).
 2. Create a GitHub OAuth App at
    [github.com/settings/developers](https://github.com/settings/developers):
    - Homepage URL: your deployed URL.
    - Authorization callback URL: `<your deployed URL>/api/auth/github/callback`.
-3. Set three environment variables on your host (see `.env.example`):
+3. Set three environment variables on Vercel (see `.env.example`):
    `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `SESSION_SECRET` (any long
    random string — `openssl rand -hex 32`), and `APP_URL` (your deployed
    URL, no trailing slash).
-4. Redeploy. The Repository panel's "Connect GitHub" button now works —
-   it requests `repo read:user` scope, so it can read and, once you
-   approve a plan that calls for it, write to repos you can access.
+4. Redeploy after setting env vars — Vercel only picks them up on the
+   next deploy, not retroactively. "Connect GitHub" now works.
 
 ## Testing the WebMCP integration
 
@@ -197,28 +201,30 @@ decisions, ledger, replay) works exactly as before.
   reload, then open the deployed URL with an agent that talks to the
   page's tools.
 - If WebMCP isn't detected, the status pill says so instead of silently
-  failing. If GitHub isn't connected, the repo tools return a clear error
-  telling the agent (and, by extension, the person) what to do.
-- **Load sample mission** resets the board to a demo-ready state without
-  touching your GitHub connection or selected repository.
+  failing. If GitHub isn't connected, the repo tools return a clear error.
+- **Load sample mission** resets the board without touching your GitHub
+  connection or selected repository.
 
 ## Project structure
 
 ```
 handoff/
-├── index.html          # markup: mission, repository, board, decision room, ledger, replay
-├── style.css             # visual design
-├── app.js                # state, rendering, the Board API (shared by UI + tools)
-├── mcp-tools.js           # document.modelContext.registerTool(...) calls
-├── api/
-│   ├── auth/github/[...action].js   # dispatches login/callback/status/logout
-│   └── github/[...action].js        # dispatches repo/issues/pulls/commits/checks/
-│                                    # blockers/repos/create-issue/comment-issue/
-│                                    # create-branch/open-pr
+├── public/
+│   ├── index.html         # served at "/" via next.config.js rewrite
+│   ├── style.css
+│   ├── app.js              # state, rendering, the Board API (shared by UI + tools)
+│   └── mcp-tools.js        # document.modelContext.registerTool(...) calls
+├── app/
+│   └── api/
+│       ├── auth/github/[...action]/route.js   # login/callback/status/logout
+│       └── github/[...action]/route.js        # repo/issues/pulls/commits/checks/
+│                                              # blockers/repos/create-issue/
+│                                              # comment-issue/create-branch/open-pr
 ├── lib/
-│   ├── session.js, github.js, http.js   # shared helpers (never routed as functions)
+│   ├── session.js, github.js, http.js   # shared helpers
 │   ├── auth-handlers/                    # the real OAuth logic
 │   └── github-handlers/                  # the real GitHub proxy logic
+├── next.config.js
 ├── .env.example
 ├── LICENSE                # MIT
 └── README.md
